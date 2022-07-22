@@ -7,13 +7,16 @@
         conversion-map (->> (filter (fn [[k v]] (not= (coltypes k) (coltypes v))) ref-cols)
                             (map (fn [[k v]] [k (coltypes v)]))
                             (into {}))]
-    (if (not-empty conversion-map) (tc/convert-types ds conversion-map) ds)))
+    (if (not-empty conversion-map)
+      (tc/convert-types ds conversion-map)
+      ds)))
 
 (defn get-column-info [ds]
   (tc/info ds :columns))
 
 (defn add-tempid-col [ds]
-  (tc/add-column ds :db/id (range -1 (- (+ (tc/row-count ds) 1)) -1)))
+  (let [range-end (- (+ (tc/row-count ds) 1))]
+    (tc/add-column ds :db/id (range -1 range-end -1))))
 
 (defn map-refids-to-tempids [ds ref-cols]
   (reduce-kv (fn [m k v] (assoc m k (zipmap (v ds) (:db/id ds))))
@@ -22,9 +25,11 @@
 
 (defn update-ref-cols [ds refid-tempid-maps]
   (let [refcols (keys refid-tempid-maps)]
-    (tc/update-columns ds refcols (map (fn [k] (partial map #(or ((k refid-tempid-maps) %)
-                                                                 %)))
-                                       refcols))))
+    (tc/update-columns ds
+                       refcols
+                       (map (fn [k] (partial map #(or ((k refid-tempid-maps) %)
+                                                      %)))
+                            refcols))))
 
 (defn map-col-attr-vals [cfg col-info]
   (let [{:keys [id-col ref-cols cardinality-many-cols]} cfg
@@ -45,7 +50,9 @@
 
 (defn extract-schema [cols-cfg ds]
   (mapv #(map-col-attr-vals cols-cfg %)
-        (tc/rows (get-column-info (tc/select-columns ds (complement #{:db/id}))) :as-maps)))
+        (-> (tc/select-columns ds (complement #{:db/id}))
+            get-column-info
+            (tc/rows :as-maps))))
 
 (defn write-schema [conn cols-cfg ds]
   (d/transact conn (extract-schema cols-cfg ds)))
